@@ -1,5 +1,170 @@
 let multiplyCount = 0;
 
+// Модуль: изменения полей услуги в виджете (режим предпросмотра)
+(function () {
+  // инициализация всех доступных полей input
+  window.InputHandler = {
+    inputs: document.querySelectorAll("input, select, file"),
+    removeFileBtn: document.querySelectorAll('[aria-label="Remove file"]'),
+    initInputsEvent() {
+      this.inputs.forEach((input) => {
+        input.addEventListener("input", (e) => {
+          const inputValue = e.target.value;
+          const element = e.target;
+          console.log(element)
+          if (element.tagName === "INPUT") {
+            WidgetFields.changeData(inputValue, element);
+          }
+          if (element.tagName === "SELECT") {
+            let selectDataName = element.dataset.name;
+            const dataName = selectDataName.replace(/[^a-zA-Zа-яА-ЯёЁ]/g, "");
+            if (dataName === "currency") {
+              WidgetFields.changeCurrency(inputValue, element);
+            }
+            if (dataName === "repeats") {
+              WidgetFields.changeData(inputValue, element);
+            }
+          }
+          // console.log(element.tagName, element);
+        });
+      });
+      this.removeFileBtn.forEach(item => {
+          item.addEventListener("click", () =>{
+            const dataName = item.dataset.name;
+            const elements = Array.from(this.inputs);
+            const targetInput = elements.find(e => e.dataset.name === dataName) || null;
+            WidgetFields.changeData(null, targetInput);
+          })
+        }
+      )
+    },
+  };
+
+  // воркеры для виджета
+  window.WidgetFields = {
+    iFrame: function () {
+      return document.querySelector("iframe") || null;
+    },
+    iframeDoc: function () {
+      const iframe = this.iFrame();
+      return iframe
+        ? iframe.contentDocument || iframe.contentWindow.document
+        : null;
+    },
+    docData: function () {
+      return document.querySelectorAll("[widget-data-id]") || null;
+    },
+    widgetData: function () {
+      const doc = this.iframeDoc();
+      return doc ? doc.querySelectorAll("[widget-data-id]") : [];
+    },
+    currency: function () {
+      const doc = this.iframeDoc();
+      return doc ? doc.querySelectorAll(".currency-wrapper") : null;
+    },
+
+    state: {},
+    // метод записи состаяния при инициализации виджета
+    setState: function () {
+      this.widgetData().forEach((title) => {
+        const key = title.getAttribute("widget-data-id");
+        const tilteVisibles = title.classList.contains("w-condition-invisible");
+        const value = title.textContent;
+        if (!tilteVisibles) {
+          this.state[key] = value;
+        }
+      });
+      this.docData().forEach((element) => {
+        const key = element.getAttribute("widget-data-id");
+        const elementVisible = !element.classList.contains(
+          "w-condition-invisible"
+        );
+        const value = element.textContent;
+        if (elementVisible) {
+          this.state[key] = value;
+        }
+      });
+      console.log("state is set", this.state);
+
+      return this; // Allow chaining
+    },
+    changeData: function (inputValue, inputElement) {
+      const inputDataName = inputElement.dataset.name;
+      const inputType = inputElement.type === "file";
+      
+      // Обработка widgetData
+      this.widgetData().forEach((item) => {
+        const isInvisible = item.classList.contains("w-condition-invisible");
+        const isTargetElement =
+          item.getAttribute("widget-data-id") === inputDataName;
+        if (isTargetElement && !isInvisible && !inputType) {
+          item.textContent =
+            inputValue.length > 0 ? inputValue : this.state[inputDataName];
+        }
+
+        if (isTargetElement && inputType && inputValue !== null) {
+          const file = inputElement.files[0]; // Получаем первый файл из списка
+          let img = item.querySelector("img");
+          if (file) {
+            const reader = new FileReader();
+            // Когда файл загружен
+            reader.onload = function (e) {
+              const imageUrl = e.target.result; // Ссылка на изображение (data URL)
+              img.src = imageUrl; // Устанавливаем ссылку как src для изображения
+            };
+            reader.readAsDataURL(file); // Читаем файл как data URL
+          } 
+
+        }
+        
+        if (isTargetElement && inputType && inputValue === null) {
+          console.log(inputValue, inputElement, inputType)
+          let img = item.querySelector("img");
+          img.src = '';
+        }
+      });
+
+      // Обработка docData
+      this.docData().forEach((element) => {
+        const isInvisible = element.classList.contains("w-condition-invisible");
+        const isTargetElement =
+          element.getAttribute("widget-data-id") === inputDataName;
+        if (isTargetElement && !isInvisible) {
+          element.textContent =
+            inputValue.length > 0 ? inputValue : this.state[inputDataName];
+        }
+      });
+    },
+
+    changeCurrency: async (inputValue, inputElement) => {
+      const { default: currencySymbols } = await import(
+        "https://esm.run/currency-symbols"
+      );
+
+      const inputDataName = inputElement.dataset.name;
+
+      // Проверяем наличие символа валюты заранее
+      const newCurrencySymbol = currencySymbols[inputValue];
+      if (!newCurrencySymbol) {
+        console.warn(`Currency symbol for "${inputValue}" not found.`);
+        return;
+      }
+
+      WidgetFields.currency().forEach((currency) => {
+        const currencyDataName = currency.getAttribute("widget-data-id");
+        if (currencyDataName === inputDataName) {
+          currency.textContent = newCurrencySymbol;
+        }
+      });
+    },
+
+    // метод для изменения периода подписки
+    changeRepeating: function (inputValue, inputElement) {},
+    // метод изменения обложки услуг
+    changeThumbnail: function (inputValue, inputElement) {},
+  };
+})();
+
 // Модуль: Утилиты
 (function Utilities() {
   window.Utils = {
@@ -21,6 +186,102 @@ let multiplyCount = 0;
   };
 })();
 
+// Модуль: Управление дисконтом
+(function () {
+  window.Discount = {
+    elements: null, // Контейнеры с виджетами
+    observer: null, // Объект MutationObserver
+    state: {}, // Хранилище состояния
+
+    initDiscount() {
+      if (!this.elements || this.elements.length === 0) {
+        console.warn("Нет элементов для наблюдения!");
+        return;
+      }
+
+      // Создаём MutationObserver
+      this.observer = new MutationObserver((mutationsList) => {
+        mutationsList.forEach((mutation) => {
+          if (
+            mutation.type === "attributes" &&
+            mutation.attributeName === "class"
+          ) {
+            const target = mutation.target;
+            const parent = target.closest(".discounted-wrapper");
+
+            if (parent) {
+              const isChecked = target.classList.contains(
+                "w--redirected-checked"
+              );
+              this.updateState(parent, target, isChecked);
+            }
+          }
+        });
+      });
+
+      // Инициализация элементов
+      this.elements.forEach((el) => {
+        const discountedElement = el.querySelector(".discounted");
+
+        if (!discountedElement) {
+          console.warn(
+            `Элемент с классом .discounted отсутствует в контейнере ${el.dataset.id}`
+          );
+          return;
+        }
+
+        this.observeElement(discountedElement);
+        this.initializeState(el);
+      });
+    },
+
+    observeElement(element) {
+      this.observer.observe(element, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    },
+
+    initializeState(parent) {
+      const discountedElement = parent.querySelector(".discounted");
+      const isChecked =
+        discountedElement?.classList.contains("w--redirected-checked") || false;
+
+      if (!parent.dataset.id) {
+        console.warn("Отсутствует атрибут data-id у элемента:", parent);
+        return;
+      }
+
+      this.state[parent.dataset.id] = {
+        parent,
+        isDiscounted: isChecked,
+        target: discountedElement,
+      };
+    },
+
+    updateState(parent, target, isChecked) {
+      const parentId = parent.dataset.id;
+
+      if (!this.state[parentId]) {
+        console.warn(`Не удалось найти состояние для ${parentId}`);
+        return;
+      }
+
+      // Обновляем состояние
+      this.state[parentId].isDiscounted = isChecked;
+
+      console.log(`Обновлено состояние для ${parentId}`, this.state[parentId]);
+
+      // Пример дальнейшей обработки
+      if (isChecked) {
+        console.log(`Дисконт активирован в элементе ${parentId}`);
+      } else {
+        console.log(`Дисконт деактивирован в элементе ${parentId}`);
+      }
+    },
+  };
+})();
+
 // Модуль: Очистка полей сервисных полей
 (function ClearServiceFields() {
   window.ServiceFields = {
@@ -35,6 +296,7 @@ let multiplyCount = 0;
           } else {
             input.value = "";
             removeFile.click();
+            WidgetFields.changeData("", input); // очистка полей виджета в услугах, которые не отображаються
           }
         });
       }
@@ -143,41 +405,38 @@ let multiplyCount = 0;
           const parent = target.closest(".data-wrapper");
           const mainWrapper = parent.closest(".multiply-wrapper");
           console.log(e.target);
-          console.log(parent); 
-          OptionsHandler.eventHandler({target, parent, mainWrapper});
+          console.log(parent);
+          OptionsHandler.eventHandler({ target, parent, mainWrapper });
         });
       });
     },
-    
 
-    eventHandler({target, parent, mainWrapper}) {
-      const parentIndex = Array.from(mainWrapper.children).indexOf(parent); 
+    eventHandler({ target, parent, mainWrapper }) {
+      const parentIndex = Array.from(mainWrapper.children).indexOf(parent);
       const visibleBlocks = Array.from(mainWrapper.children).filter(
         (block) => !block.classList.contains("hide")
       );
-      
+
       if (target.getAttribute("option") === "up" && parentIndex > 0) {
         parent.parentNode.insertBefore(
           parent,
           parent.parentNode.children[parentIndex - 1]
         );
-        OptionsHandler.updateMenu()
+        OptionsHandler.updateMenu();
       } else if (
         target.getAttribute("option") === "down" &&
         parentIndex < parent.parentNode.children.length - 1 &&
-        !parent.parentNode.children[parentIndex + 1].classList.contains(
-          "hide"
-        )
+        !parent.parentNode.children[parentIndex + 1].classList.contains("hide")
       ) {
         parent.parentNode.insertBefore(
           parent,
           parent.parentNode.children[parentIndex + 2]
         );
-        OptionsHandler.updateMenu()
+        OptionsHandler.updateMenu();
       } else if (target.getAttribute("option") === "delete") {
         parent.classList.add("hide");
         multiplyCount--;
-        OptionsHandler.updateMenu()
+        OptionsHandler.updateMenu();
       }
       if (multiplyCount === 0) {
         mainWrapper.children[multiplyCount].classList.add("hide");
@@ -189,9 +448,8 @@ let multiplyCount = 0;
     },
     updateMenu() {
       const optionWrapper = document.querySelectorAll(".option-wrapper");
-      OptionsHandler.resetMenu({optionWrapper});
+      OptionsHandler.resetMenu({ optionWrapper });
       if (multiplyCount > 0) {
-        
         optionWrapper.forEach((item, index) => {
           console.log(item);
           if (index === 0) {
@@ -212,8 +470,8 @@ let multiplyCount = 0;
         });
       }
     },
-    resetMenu({optionWrapper}) {
-      console.log('resetMenu');
+    resetMenu({ optionWrapper }) {
+      console.log("resetMenu");
       optionWrapper.forEach((item, index) => {
         const upButton = item
           .querySelector('[option="up"]')
@@ -236,7 +494,7 @@ let multiplyCount = 0;
   OptionsHandler.initMenu(optionDelete);
 })();
 
-// Модуль: создания новых блоков с услугами
+// Модуль: Создание новых блоков с услугами
 (function AddServiceBlock() {
   window.ServiceBlocksHandler = {
     addServiceBlock({
@@ -266,7 +524,7 @@ let multiplyCount = 0;
         // });
       });
     },
-    
+
     // метод для удаления блоков с услугами и сброса полей
     removeServiceBlocks(
       multiplyWrapper,
@@ -307,6 +565,7 @@ let multiplyCount = 0;
   const subscribeFields = Array.from(
     document.querySelectorAll(".subscribe-field")
   );
+
   const addService = document.querySelector("#addServiceBlock");
   const addServiceBtn = document.querySelector("#addServiceBtn");
   const btnAddMoreService = document.querySelector(".btn-add-more-service");
@@ -314,29 +573,7 @@ let multiplyCount = 0;
   const radio = document.querySelectorAll("[type=radio]");
   const multiplyWrapper = document.querySelector(".multiply-wrapper");
   const supportMessage = document.querySelector(".support-message");
-
-  // Handlers.attachOptionHandlers(
-  //   optionUp,
-  //   optionDown,
-  //   optionDelete,
-  //   multiplyWrapper,
-  //   btnAddMoreService,
-  //   supportMessage,
-  //   optionWrapper
-  // );
-
-  ServiceBlocksHandler.addServiceBlock({
-    btnAddMoreService,
-    addServiceBtn,
-    optionWrapper,
-    multiplyWrapper,
-    supportMessage,
-  });
-
-  if (radio.length === 0) {
-    console.warn("No radio buttons found on the page");
-    return;
-  }
+  const discountBlocks = document.querySelectorAll(".discounted-wrapper");
 
   radio.forEach((btn) => {
     btn.addEventListener("change", () => {
@@ -356,6 +593,18 @@ let multiplyCount = 0;
     });
   });
 
+  window.addEventListener("DOMContentLoaded", () => {
+    const iframe = document.querySelector("iframe");
+    if (iframe) {
+      iframe.addEventListener("load", () => {
+        console.log("Widget has loaded!");
+        WidgetFields.setState();
+      });
+    } else {
+      console.log("Widget not found!");
+    }
+  });
+
   try {
     Switcher.handleRadioChange(
       radio,
@@ -366,6 +615,18 @@ let multiplyCount = 0;
       btnAddMoreService,
       supportMessage
     );
+
+    ServiceBlocksHandler.addServiceBlock({
+      btnAddMoreService,
+      addServiceBtn,
+      optionWrapper,
+      multiplyWrapper,
+      supportMessage,
+    });
+
+    Discount.elements = discountBlocks;
+    Discount.initDiscount();
+    InputHandler.initInputsEvent();
   } catch (error) {
     console.error("Error during initialization:", error);
   }
