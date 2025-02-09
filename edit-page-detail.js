@@ -1,4 +1,5 @@
 let multiplyCount = 0;
+let widgetReady = false;
 
 // Модуль: изменения полей услуги в виджете (режим предпросмотра)
 (function () {
@@ -11,7 +12,6 @@ let multiplyCount = 0;
         input.addEventListener("input", (e) => {
           const inputValue = e.target.value;
           const element = e.target;
-          console.log(element)
           if (element.tagName === "INPUT") {
             WidgetFields.changeData(inputValue, element);
           }
@@ -28,15 +28,15 @@ let multiplyCount = 0;
           // console.log(element.tagName, element);
         });
       });
-      this.removeFileBtn.forEach(item => {
-          item.addEventListener("click", () =>{
-            const dataName = item.dataset.name;
-            const elements = Array.from(this.inputs);
-            const targetInput = elements.find(e => e.dataset.name === dataName) || null;
-            WidgetFields.changeData(null, targetInput);
-          })
-        }
-      )
+      this.removeFileBtn.forEach((item) => {
+        item.addEventListener("click", () => {
+          const dataName = item.dataset.name;
+          const elements = Array.from(this.inputs);
+          const targetInput =
+            elements.find((e) => e.dataset.name === dataName) || null;
+          WidgetFields.changeData(null, targetInput);
+        });
+      });
     },
   };
 
@@ -62,7 +62,6 @@ let multiplyCount = 0;
       const doc = this.iframeDoc();
       return doc ? doc.querySelectorAll(".currency-wrapper") : null;
     },
-
     state: {},
     // метод записи состаяния при инициализации виджета
     setState: function () {
@@ -91,7 +90,7 @@ let multiplyCount = 0;
     changeData: function (inputValue, inputElement) {
       const inputDataName = inputElement.dataset.name;
       const inputType = inputElement.type === "file";
-      
+
       // Обработка widgetData
       this.widgetData().forEach((item) => {
         const isInvisible = item.classList.contains("w-condition-invisible");
@@ -113,14 +112,12 @@ let multiplyCount = 0;
               img.src = imageUrl; // Устанавливаем ссылку как src для изображения
             };
             reader.readAsDataURL(file); // Читаем файл как data URL
-          } 
-
+          }
         }
-        
+
         if (isTargetElement && inputType && inputValue === null) {
-          console.log(inputValue, inputElement, inputType)
           let img = item.querySelector("img");
-          img.src = '';
+          img.src = "";
         }
       });
 
@@ -157,11 +154,46 @@ let multiplyCount = 0;
         }
       });
     },
+  };
+})();
 
-    // метод для изменения периода подписки
-    changeRepeating: function (inputValue, inputElement) {},
-    // метод изменения обложки услуг
-    changeThumbnail: function (inputValue, inputElement) {},
+// Модуль: синхронизация отображения  полей виджета и пользовательского интерфейса
+(function () {
+  window.SyncFields = {
+    subscribeFields: Array.from(document.querySelectorAll(".subscribe-field")),
+    // управление отображением полей подписки
+    subscribeVisibility: function () {
+      if (widgetReady) {
+        const iframeDoc = WidgetFields.iframeDoc();
+        const subscribeWigetFields = Array.from(
+          iframeDoc.querySelectorAll(".subscribe-type")
+        );
+
+        this.subscribeFields.forEach((item, index) => {
+          let shouldBeVisible = !item.classList.contains("hide");
+          subscribeWigetFields[index].classList.toggle(
+            "w-condition-invisible",
+            !shouldBeVisible
+          );
+        });
+      }
+    },
+    discountVisibility: function (...args) {
+      console.log('work')
+      let [discountId, state] = args;
+      const iframeDoc = WidgetFields.iframeDoc();
+      const discountField = Array.from(iframeDoc.querySelectorAll("[data-id]"));
+      discountField.forEach(field => {
+        let targetField = field.getAttribute("data-id");
+        if (targetField === discountId && state) {
+          console.log('show')
+          field.classList.remove("w-condition-invisible");
+        } else {
+          console.log('hide')
+          field.classList.add("w-condition-invisible");
+        }
+      })
+    }
   };
 })();
 
@@ -189,9 +221,9 @@ let multiplyCount = 0;
 // Модуль: Управление дисконтом
 (function () {
   window.Discount = {
-    elements: null, // Контейнеры с виджетами
-    observer: null, // Объект MutationObserver
-    state: {}, // Хранилище состояния
+    elements: null, 
+    observer: null, 
+    state: {}, 
 
     initDiscount() {
       if (!this.elements || this.elements.length === 0) {
@@ -275,8 +307,11 @@ let multiplyCount = 0;
       // Пример дальнейшей обработки
       if (isChecked) {
         console.log(`Дисконт активирован в элементе ${parentId}`);
+        SyncFields.discountVisibility(parentId, true);
+
       } else {
         console.log(`Дисконт деактивирован в элементе ${parentId}`);
+        SyncFields.discountVisibility(parentId, false);
       }
     },
   };
@@ -359,6 +394,7 @@ let multiplyCount = 0;
           btnAddMoreService,
           supportMessage
         );
+        SyncFields.subscribeVisibility();
       } else if (
         selectedParams.includes("subscription") &&
         selectedParams.includes("single-price")
@@ -371,6 +407,7 @@ let multiplyCount = 0;
           btnAddMoreService,
           supportMessage
         );
+        SyncFields.subscribeVisibility();
       } else if (
         selectedParams.includes("one-time") &&
         selectedParams.includes("multiple-price")
@@ -494,7 +531,7 @@ let multiplyCount = 0;
   OptionsHandler.initMenu(optionDelete);
 })();
 
-// Модуль: Создание новых блоков с услугами
+// Модуль: Создание новых блоков с услугами в интерфейсе пользователя
 (function AddServiceBlock() {
   window.ServiceBlocksHandler = {
     addServiceBlock({
@@ -598,6 +635,7 @@ let multiplyCount = 0;
     if (iframe) {
       iframe.addEventListener("load", () => {
         console.log("Widget has loaded!");
+        widgetReady = true;
         WidgetFields.setState();
       });
     } else {
